@@ -18,10 +18,17 @@ package uk.gov.hmrc.akka.xml
 
 import akka.stream.scaladsl.{Keep, Source}
 import akka.util.ByteString
+import org.scalatest.concurrent.PatienceConfiguration.Timeout
 import org.scalatest.{FlatSpec, Matchers}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.mock.MockitoSugar
+import org.scalatest.time.{Seconds, Span}
 
+import scala.util.Random
+
+/**
+  * Created by Gabor Dorcsinecz
+  */
 class XMLParserXMLExtractNamespaceSpec extends FlatSpec
   with Matchers
   with ScalaFutures
@@ -36,48 +43,469 @@ class XMLParserXMLExtractNamespaceSpec extends FlatSpec
   behavior of "CompleteChunkStage#parser"
 
 
-  it should "Parse and extract several non-default namespaces" in {
+//  it should "Parse and extract several non-default namespaces" in {
+//
+//    val testXMLX =
+//      <ns5:GovTalkMessage
+//      xmlns:ns0="http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/13-14/2"
+//      xmlns:ns2="http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/15-16/1"
+//      xmlns:ns5="http://www.govtalk.gov.uk/CM/envelope"
+//      xmlns:ns1="http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/14-15/1"
+//      xmlns:ns3="http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/16-17/1"
+//      xmlns:ns4="http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/17-18/1"
+//      xmlns="">
+//        <ns5:EnvelopeVersion>2.0</ns5:EnvelopeVersion>
+//        <ns5:Header></ns5:Header>
+//        <ns5:GovTalkDetails></ns5:GovTalkDetails>
+//      </ns5:GovTalkMessage>
+//
+//    val source = Source(List(ByteString(testXMLX.toString())))
+//
+//
+//    val paths = Seq[XMLInstruction](
+//      XMLExtract(Seq("GovTalkMessage"), Map("xmlns:ns2" -> "http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/15-16/1")),
+//      XMLExtract(Seq("GovTalkMessage"), Map("xmlns:BLABLA" -> "http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/13-14/2")),
+//      XMLExtract(Seq("GovTalkMessage"), Map("xmlns" -> "http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/17-18/1")),
+//      XMLExtract(Seq("GovTalkMessage"), Map("xmlns" -> "http://www.govtalk.gov.uk/CM/envelope"))
+//    )
+//
+//    val expected = Set(
+//      XMLElement(List("GovTalkMessage"), Map("xmlns:ns2" -> "http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/15-16/1"), Some("")),
+//      XMLElement(List("GovTalkMessage"), Map("xmlns:ns0" -> "http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/13-14/2"), Some("")),
+//      XMLElement(List("GovTalkMessage"), Map("xmlns:ns4" -> "http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/17-18/1"), Some("")),
+//      XMLElement(List("GovTalkMessage"), Map("xmlns:ns5" -> "http://www.govtalk.gov.uk/CM/envelope"), Some("")),
+//      XMLElement(List(), Map(CompleteChunkStage.STREAM_SIZE -> "681"), Some(CompleteChunkStage.STREAM_SIZE))
+//    )
+//
+//          whenReady(source.runWith(parseToXMLElements(paths))) { r =>
+//      r shouldBe expected
+//    }
+//
+//    whenReady(source.runWith(parseToByteString(paths))) { r =>
+//      whenReady(source.toMat(collectByteString)(Keep.right).run()) { t =>
+//        r shouldBe t
+//      }
+//    }
+//  }
 
-    val testXMLX =
+
+  it should "Be able to parse namespaces from partial xmls" in {
+
+    val testXML =
       <ns5:GovTalkMessage
+      xmlns:ns5="http://www.govtalk.gov.uk/CM/envelope"
       xmlns:ns0="http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/13-14/2"
       xmlns:ns2="http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/15-16/1"
-      xmlns:ns5="http://www.govtalk.gov.uk/CM/envelope"
       xmlns:ns1="http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/14-15/1"
-      xmlns:ns3="http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/16-17/1"
       xmlns:ns4="http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/17-18/1"
+      xmlns:ns3="http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/16-17/1"
       xmlns="">
-        <ns5:EnvelopeVersion>2.0</ns5:EnvelopeVersion>
-        <ns5:Header></ns5:Header>
-        <ns5:GovTalkDetails></ns5:GovTalkDetails>
-      </ns5:GovTalkMessage>
+      <ns5:EnvelopeVersion>2.0</ns5:EnvelopeVersion>
+      <ns5:Header>
+        <ns5:MessageDetails>
+          <ns5:Class>HMRC-PAYE-RTI-EPS</ns5:Class>
+          <ns5:Qualifier>request</ns5:Qualifier>
+          <ns5:Function>submit</ns5:Function>
+          <ns5:TransactionID>D4342A97268A46AFA3937F4E0E7D6A5E</ns5:TransactionID>
+          <ns5:CorrelationID>879F4F329DA64F11B8D61154DEDD6B94</ns5:CorrelationID>
+          <ns5:Transformation>XML</ns5:Transformation>
+          <ns5:GatewayTest>1</ns5:GatewayTest>
+          <ns5:GatewayTimestamp>2017-06-19T12:37:09.672</ns5:GatewayTimestamp>
+        </ns5:MessageDetails>
+        <ns5:SenderDetails>
+          <ns5:IDAuthentication>
+            <ns5:SenderID>0000001742157129</ns5:SenderID>
+            <ns5:Authentication>
+              <ns5:Method>clear</ns5:Method>
+              <ns5:Role>principal</ns5:Role>
+              <ns5:Value>**********</ns5:Value>
+            </ns5:Authentication>
+          </ns5:IDAuthentication>
+        </ns5:SenderDetails>
+      </ns5:Header>
+      <ns5:GovTalkDetails>
+        <ns5:Keys>
+          <ns5:Key Type="TaxOfficeReference">A635</ns5:Key>
+          <ns5:Key Type="TaxOfficeNumber">635</ns5:Key>
+        </ns5:Keys>
+        <ns5:ChannelRouting>
+          <ns5:Channel>
+            <ns5:URI>your 4 digit vendor ID</ns5:URI>
+            <ns5:Product>ADP IHCM</ns5:Product>
+            <ns5:Version>your product version</ns5:Version>
+          </ns5:Channel>
+        </ns5:ChannelRouting>
+      </ns5:GovTalkDetails>
+      <ns5:Body>
+        <ns4:IRenvelope>
+          <ns4:IRheader>
+            <ns4:Keys>
+              <ns4:Key Type="TaxOfficeReference">A635</ns4:Key>
+              <ns4:Key Type="TaxOfficeNumber">635</ns4:Key>
+            </ns4:Keys>
+            <ns4:PeriodEnd>2017-06-06</ns4:PeriodEnd>
+            <ns4:Agent>
+              <ns4:AgentID/>
+              <ns4:Company>RTI 810</ns4:Company>
+            </ns4:Agent>
+            <ns4:DefaultCurrency>GBP</ns4:DefaultCurrency>
+            <ns4:Sender>Employer</ns4:Sender>
+          </ns4:IRheader>
+          <ns4:EmployerPaymentSummary>
+            <ns4:EmpRefs>
+              <ns4:OfficeNo>635</ns4:OfficeNo>
+              <ns4:PayeRef>A635</ns4:PayeRef>
+              <ns4:AORef>044PW44444444</ns4:AORef>
+            </ns4:EmpRefs>
+            <ns4:NoPaymentForPeriod>yes</ns4:NoPaymentForPeriod>
+            <ns4:NoPaymentDates>
+              <ns4:From>2016-06-10</ns4:From>
+              <ns4:To>2016-06-06</ns4:To>
+            </ns4:NoPaymentDates>
+            <ns4:PeriodOfInactivity>
+              <ns4:From>2016-06-07</ns4:From>
+              <ns4:To>2016-06-06</ns4:To>
+            </ns4:PeriodOfInactivity>
+            <ns4:EmpAllceInd>yes</ns4:EmpAllceInd>
+            <ns4:RecoverableAmountsYTD>
+              <ns4:TaxMonth/>
+              <ns4:SMPRecovered>1242.80</ns4:SMPRecovered>
+              <ns4:SPPRecovered>516.00</ns4:SPPRecovered>
+              <ns4:SAPRecovered>378.00</ns4:SAPRecovered>
+              <ns4:ShPPRecovered>378.00</ns4:ShPPRecovered>
+              <ns4:NICCompensationOnSMP>82.30</ns4:NICCompensationOnSMP>
+              <ns4:NICCompensationOnSPP>62.70</ns4:NICCompensationOnSPP>
+              <ns4:NICCompensationOnSAP>37.40</ns4:NICCompensationOnSAP>
+              <ns4:NICCompensationOnShPP>32.00</ns4:NICCompensationOnShPP>
+              <ns4:CISDeductionsSuffered>32.00</ns4:CISDeductionsSuffered>
+            </ns4:RecoverableAmountsYTD>
+            <ns4:ApprenticeshipLevy>
+              <ns4:LevyDueYTD>3248.00</ns4:LevyDueYTD>
+              <ns4:TaxMonth>9</ns4:TaxMonth>
+              <ns4:AnnualAllce>1000.00</ns4:AnnualAllce>
+            </ns4:ApprenticeshipLevy>
+            <ns4:Account>
+              <ns4:AccountHoldersName>ACCOUNT HOLDER NAME</ns4:AccountHoldersName>
+              <ns4:AccountNo>12345678</ns4:AccountNo>
+              <ns4:SortCode>999999</ns4:SortCode>
+              <ns4:BuildingSocRef>0121331313</ns4:BuildingSocRef>
+            </ns4:Account>
+            <ns4:RelatedTaxYear>17-18</ns4:RelatedTaxYear>
+            <ns4:FinalSubmission>
+              <ns4:BecauseSchemeCeased>yes</ns4:BecauseSchemeCeased>
+              <ns4:DateSchemeCeased>2016-06-10</ns4:DateSchemeCeased>
+              <ns4:ForYear>yes</ns4:ForYear>
+            </ns4:FinalSubmission>
+          </ns4:EmployerPaymentSummary>
+        </ns4:IRenvelope>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
+        <ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA></ns4:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>
 
-    val source = Source(List(ByteString(testXMLX.toString())))
+      </ns5:Body>
+    </ns5:GovTalkMessage>
+
+    for (i <- 0 until 10) {
+      println("Iteration: " + i)
+      //val multiSource = <wibble>{(1 to 2).map(a => testXML)}</wibble>.toString()
+      //val multiSource = <wibble>{testXML}{testXML}</wibble>.toString()
+      //println("multiSource: " + multiSource)
+      val multiSource = testXML.toString
+
+      val maxLength = multiSource.length
+      val random = Random
+      var indexStart = 0
+      var indexEnd = 0
+      val xmlPartsList = new scala.collection.mutable.ArrayBuffer[ByteString]
+      while (indexEnd < maxLength) {
+        indexStart = indexEnd
+        indexEnd = indexStart + random.nextInt(500)
+        if (indexEnd < maxLength) {
+          xmlPartsList += ByteString(multiSource.substring(indexStart, indexEnd))
+        } else {
+          xmlPartsList += ByteString(multiSource.substring(indexStart, maxLength))
+        }
+      }
+
+      val source = Source(xmlPartsList.toList)
+
+      //val t2 = (1 to 2).map(_ => testXML.toString)
+      //val t2 = testXML.toString +testXML.toString
+      //println(t2)
+      //val source = Source(t2.map(a => ByteString(a + "\r\n")))
+
+      val GOV_TALK_MESSAGE = "GovTalkMessage"
+      val ENVELOPE_VERSION = "EnvelopeVersion"
+      val HEADER = "Header"
+      val MESSAGE_CLASS = "Class"
+      val QUALIFIER = "Qualifier"
+      val FUNCTION = "Function"
+      val TRANSACTION_ID = "TransactionID"
+      val CORRELATION_ID = "CorrelationID"
+      val RESPONSE_ENDPOINT = "ResponseEndPoint"
+      val POLL_INTERVAL = "PollInterval"
+      val TRANSFORMATION = "Transformation"
+      val AUDIT_ID = "AuditID"
+      val GATEWAY_TEST = "GatewayTest"
+      val GATEWAY_TIMESTAMP = "GatewayTimestamp"
+      val SENDER_ID = "SenderID"
+      val METHOD = "Method"
+      val INCLUDE_IDENTIFIERS = "IncludeIdentifiers"
+      val START_DATE = "StartDate"
+      val START_TIME = "StartTime"
+      val END_DATE = "EndDate"
+      val END_TIME = "EndTime"
+      val SYSTEM_CORR_ID = "SystemCorrelationID"
+      val SYSTEM_TIMESTAMP = "SystemTimestamp"
+      val MESSAGE_DETAILS = "MessageDetails"
+      val GOV_TALK_DETAILS = "GovTalkDetails"
+      val SENDER_DETAILS_UPSERT = s"<SenderDetails/>"
+      val GOV_TALK_ERRORS = "GovTalkErrors"
+      val ERROR = "Error"
+      val RAISED_BY = "RaisedBy"
+      val TYPE = "Type"
+      val TYPE_FATAL = "fatal"
+      val TYPE_BUSINESS = "business"
+      val NUMBER = "Number"
+      val errorNumberInsert = s"""<$NUMBER>3001</$NUMBER>"""
+      val ERROR_RESPONSE_DEPARTMENT = "Department"
+      val ERROR_NUMBER = "3001"
+      val ERROR_RESPONSE_TEXT = "The submission of this document has failed due to departmental specific business logic in the Body tag."
+      val TEXT = "Text"
+      val SENDER_DETAILS = "SenderDetails"
+      val ID_AUTHENTICATION = "IDAuthentication"
+      val AUTHENTICATION = "Authentication"
+      val PASSWORD = "Value"
+      val MASK_PASSWORD = "**********"
+      val EMAIL_ADDRESS = "EmailAddress"
+      val PLACEHOLDER_EMAIL_ADDRESS = "placeholder@gateway.com"
+      val GATEWAY_ADDITIONS = "GatewayAdditions"
+      val KEYS = "Keys"
+      val KEY = "Key"
+      val BODY = "Body"
+      val ERROR_RESPONSE = "ErrorResponse"
+      val STATUS_REQUEST = "StatusRequest"
+      val CHANNEL_ROUTING: String = "ChannelRouting"
+      val CHANNEL: String = "Channel"
+      val CHANNEL_URI: String = "URI"
+      val PRODUCT: String = "Product"
+      val PRODUCT_VERSION: String = "Version"
+      val POLL = "poll"
+      val SUBMISSION = "submission"
+      val SUSPENDED_MESSAGE = "Temporarily Suspended"
+      val DEFAULT_START_TIME = "00:00:00"
+      val DEFAULT_END_TIME = "23:59:59"
+
+      val paths = Seq[XMLInstruction](
+        XMLExtract(Seq( "GovTalkMessage"), Map("xmlns" -> "http://www.govtalk.gov.uk/CM/envelope")),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, ENVELOPE_VERSION)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, HEADER, MESSAGE_DETAILS, MESSAGE_CLASS)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, HEADER, MESSAGE_DETAILS, QUALIFIER)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, HEADER, MESSAGE_DETAILS, FUNCTION)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, HEADER, MESSAGE_DETAILS, TRANSACTION_ID)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, HEADER, MESSAGE_DETAILS, CORRELATION_ID)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, HEADER, MESSAGE_DETAILS, RESPONSE_ENDPOINT)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, HEADER, MESSAGE_DETAILS, TRANSFORMATION)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, HEADER, MESSAGE_DETAILS, GATEWAY_TEST)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, HEADER, MESSAGE_DETAILS, GATEWAY_TIMESTAMP)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, HEADER, SENDER_DETAILS, ID_AUTHENTICATION, SENDER_ID)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, HEADER, SENDER_DETAILS, ID_AUTHENTICATION, AUTHENTICATION, METHOD)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, HEADER, SENDER_DETAILS, ID_AUTHENTICATION, AUTHENTICATION, PASSWORD)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, HEADER, SENDER_DETAILS, EMAIL_ADDRESS)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, GOV_TALK_DETAILS, KEYS, KEY)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, GOV_TALK_DETAILS, CHANNEL_ROUTING, CHANNEL, CHANNEL_URI)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, GOV_TALK_DETAILS, CHANNEL_ROUTING, CHANNEL, PRODUCT)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, GOV_TALK_DETAILS, CHANNEL_ROUTING, CHANNEL, PRODUCT_VERSION)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, BODY, STATUS_REQUEST)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, BODY, STATUS_REQUEST, INCLUDE_IDENTIFIERS)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, BODY, STATUS_REQUEST, START_DATE)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, BODY, STATUS_REQUEST, START_TIME)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, BODY, STATUS_REQUEST, END_DATE)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, BODY, STATUS_REQUEST, END_TIME)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, BODY, INCLUDE_IDENTIFIERS)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, BODY, START_DATE)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, BODY, START_TIME)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, BODY, END_DATE)),
+        XMLExtract(Seq(GOV_TALK_MESSAGE, BODY, END_TIME))
+        //XMLUpdate(Seq(GOV_TALK_MESSAGE, HEADER, SENDER_DETAILS, ID_AUTHENTICATION, AUTHENTICATION, PASSWORD), updateElement(MASK_PASSWORD)),
+        //XMLValidate(Seq(GOV_TALK_MESSAGE), Seq(GOV_TALK_MESSAGE, BODY), validateSubmissionMessage)
+      )
+
+      val expected = Set(
+        XMLElement(List("GovTalkMessage", "GovTalkDetails", "Keys", "Key"),Map("Type" -> "TaxOfficeNumber"),Some("635")),
+      XMLElement(List("GovTalkMessage", "GovTalkDetails", "ChannelRouting", "Channel", "URI"),Map(),Some("your 4 digit vendor ID")),
+      XMLElement(List("GovTalkMessage", "Header", "SenderDetails", "IDAuthentication", "SenderID"),Map(),Some("0000001742157129")),
+      XMLElement(List("GovTalkMessage", "Header", "MessageDetails", "GatewayTest"),Map(),Some("1")),
+      XMLElement(List("GovTalkMessage", "Header", "MessageDetails", "CorrelationID"),Map(),Some("879F4F329DA64F11B8D61154DEDD6B94")),
+      XMLElement(List("GovTalkMessage", "Header", "MessageDetails", "Function"),Map(),Some("submit")),
+      XMLElement(List("GovTalkMessage") ,Map("xmlns:ns5" -> "http://www.govtalk.gov.uk/CM/envelope"),Some("")),
+      XMLElement(List("GovTalkMessage", "GovTalkDetails", "Keys", "Key"),Map("Type" -> "TaxOfficeReference"),Some("A635")),
+      XMLElement(List("GovTalkMessage", "Header", "MessageDetails", "Transformation"),Map(),Some("XML")),
+      XMLElement(List("GovTalkMessage", "Header", "MessageDetails", "Class"),Map(),Some("HMRC-PAYE-RTI-EPS")),
+      XMLElement(List("GovTalkMessage", "Header", "MessageDetails", "Qualifier"),Map(),Some("request")),
+      XMLElement(List("GovTalkMessage", "Header", "MessageDetails", "TransactionID"),Map(),Some("D4342A97268A46AFA3937F4E0E7D6A5E")),
+      XMLElement(List("GovTalkMessage", "Header", "SenderDetails", "IDAuthentication", "Authentication", "Value"),Map(),Some("**********")),
+      XMLElement(List("GovTalkMessage", "Header", "MessageDetails", "GatewayTimestamp"),Map(),Some("2017-06-19T12:37:09.672")),
+      XMLElement(List("GovTalkMessage", "EnvelopeVersion"),Map(),Some("2.0")),
+      XMLElement(List("GovTalkMessage", "GovTalkDetails", "ChannelRouting", "Channel", "Product"),Map(),Some("ADP IHCM")),
+      XMLElement(List("GovTalkMessage", "Header", "SenderDetails", "IDAuthentication", "Authentication", "Method"),Map(),Some("clear")),
+      XMLElement(List("GovTalkMessage", "GovTalkDetails", "ChannelRouting", "Channel", "Version"),Map(),Some("your product version"))
 
 
-    val paths = Seq[XMLInstruction](
-      XMLExtract(Seq("GovTalkMessage"), Map("xmlns:ns2" -> "http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/15-16/1")),
-      XMLExtract(Seq("GovTalkMessage"), Map("xmlns:BLABLA" -> "http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/13-14/2")),
-      XMLExtract(Seq("GovTalkMessage"), Map("xmlns" -> "http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/17-18/1")),
-      XMLExtract(Seq("GovTalkMessage"), Map("xmlns" -> "http://www.govtalk.gov.uk/CM/envelope"))
-    )
+      //XMLElement(List( "GovTalkMessage"), Map("xmlns:ns5" -> "http://www.govtalk.gov.uk/CM/envelope"), Some("")),
 
-    val expected = Set(
-      XMLElement(List("GovTalkMessage"), Map("xmlns:ns2" -> "http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/15-16/1"), Some("")),
-      XMLElement(List("GovTalkMessage"), Map("xmlns:ns0" -> "http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/13-14/2"), Some("")),
-      XMLElement(List("GovTalkMessage"), Map("xmlns:ns4" -> "http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/17-18/1"), Some("")),
-      XMLElement(List("GovTalkMessage"), Map("xmlns:ns5" -> "http://www.govtalk.gov.uk/CM/envelope"), Some("")),
-      XMLElement(List(), Map(CompleteChunkStage.STREAM_SIZE -> "681"), Some(CompleteChunkStage.STREAM_SIZE))
-    )
+        //XMLElement(List(), Map(CompleteChunkStage.STREAM_SIZE -> "4943"), Some(CompleteChunkStage.STREAM_SIZE))
+      )
 
-          whenReady(source.runWith(parseToXMLElements(paths))) { r =>
-      r shouldBe expected
-    }
+      val timeout = Timeout(Span(10, Seconds))
+      whenReady(source.runWith(parseToXMLElements(paths,Some(1024))),timeout) { r =>
+        val noLength = r.filterNot(xmlElement => xmlElement.attributes.get(CompleteChunkStage.STREAM_SIZE).isDefined)
+        noLength shouldBe expected
+      }
 
-    whenReady(source.runWith(parseToByteString(paths))) { r =>
-      whenReady(source.toMat(collectByteString)(Keep.right).run()) { t =>
-        r shouldBe t
+      whenReady(source.runWith(parseToByteString(paths)),timeout) { r =>
+        whenReady(source.toMat(collectByteString)(Keep.right).run()) { t =>
+          r shouldBe t
+        }
       }
     }
+
   }
+
 }
